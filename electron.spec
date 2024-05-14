@@ -1,5 +1,5 @@
 # TODO: build from sources
-Name: electron28
+Name: electron29
 Version: 29.2.0
 Release: alt2
 
