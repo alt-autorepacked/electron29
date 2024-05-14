@@ -1,0 +1,65 @@
+permissions:
+  contents: write
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch:
+          - sisyphus
+          - p10
+        arch:
+          - amd64
+          - arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: ${{ matrix.arch }}
+
+      - name: Run the build process with Docker
+        uses: addnab/docker-run-action@v3
+        with:
+          image: "alt:${{ matrix.branch }}"
+          options: |
+            --platform linux/${{ matrix.arch }}
+            --volume ${{ github.workspace }}/:/workspace
+            --env GH_TOKEN=${{ github.token }}
+            --env ALLOW_ROOT_USER=1
+          run: |
+            cd /workspace
+            apt-get update && apt-get -y install git github-cli etersoft-build-utils
+            curl -sL https://eepm.ru/epm.sh | bash /dev/stdin ei
+            echo "%_allow_root_build 1" >> ~/.rpmmacros
+            
+            COMMON_VERSION="0.5.2"
+            epm tool eget https://raw.githubusercontent.com/alt-autorepacked/common/v$COMMON_VERSION/common.sh
+            . ./common.sh
+
+            INSTALL=$(rpmgp -l *.spec)
+            epm --skip-installed --auto install $INSTALL
+            rpmgs -f *.spec
+            rpmbb *.spec
+            
+            mkdir /out
+            find ~/RPM/RPMS -type f -exec cp "{}" /out/ \;
+
+            _package=electron29
+            cd /out
+            _add_repo_suffix
+            download_version=$(_check_version_from_download)
+            remote_version=$(_check_version_from_remote)
+            if [ "$remote_version" != "$download_version" ]; then
+              TAG="v$download_version"
+              _create_release
+              echo "Release created: $TAG"
+            else
+              echo "No new version to release. Current version: $download_version"
+            fi
